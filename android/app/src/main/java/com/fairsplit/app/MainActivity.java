@@ -1,0 +1,5 @@
+package com.fairsplit.app;
+
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {}

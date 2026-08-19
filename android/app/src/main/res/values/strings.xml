@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FairSplit</string>
+    <string name="title_activity_main">FairSplit</string>
+    <string name="package_name">com.fairsplit.app</string>
+    <string name="custom_url_scheme">com.fairsplit.app</string>
+</resources>

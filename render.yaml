@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: fairsplit
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node server/index.js
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: NODE_ENV
+        value: production
+      - key: GEMINI_API_KEY
+        sync: false

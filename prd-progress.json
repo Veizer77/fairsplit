@@ -1,0 +1,74 @@
+[
+  {
+    "feature": "Zero API Cost",
+    "status": "done"
+  },
+  {
+    "feature": "Fair Allocation Engine",
+    "status": "done"
+  },
+  {
+    "feature": "Zero-Friction Collaboration",
+    "status": "done"
+  },
+  {
+    "feature": "Pipeline Latency",
+    "status": "done"
+  },
+  {
+    "feature": "Parsing Accuracy",
+    "status": "done"
+  },
+  {
+    "feature": "Mathematical Integrity",
+    "status": "done"
+  },
+  {
+    "feature": "Prompt Contract (Groq API)",
+    "status": "done"
+  },
+  {
+    "feature": "Error Handling & Edge Cases",
+    "status": "done"
+  },
+  {
+    "feature": "OCR Gagal/Teks Kosong",
+    "status": "done"
+  },
+  {
+    "feature": "Groq API Rate Limit (429) / Offline",
+    "status": "done"
+  },
+  {
+    "feature": "Mismatch Total",
+    "status": "done"
+  },
+  {
+    "feature": "Penanganan Selisih Pembulatan (*Penny Drift/Rounding Issue*)",
+    "status": "done"
+  },
+  {
+    "feature": "Hitung pembulatan ke satuan integer terdekat (Math.round / Math.floor).",
+    "status": "done"
+  },
+  {
+    "feature": "Hitung deviasi",
+    "status": "done"
+  },
+  {
+    "feature": "Life-cycle Payload",
+    "status": "done"
+  },
+  {
+    "feature": "OCR Latency",
+    "status": "done"
+  },
+  {
+    "feature": "LLM Parse Latency",
+    "status": "done"
+  },
+  {
+    "feature": "Web App Load Time",
+    "status": "done"
+  }
+]

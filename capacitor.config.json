@@ -1,0 +1,9 @@
+{
+  "appId": "com.fairsplit.app",
+  "appName": "FairSplit",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}
