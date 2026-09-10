@@ -16,6 +16,7 @@ export default function ProportionalBreakdown({
   const [copiedWA, setCopiedWA] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [shareLink, setShareLink] = useState('');
+  const [shortShareLink, setShortShareLink] = useState('');
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [paidStatus, setPaidStatus] = useState(() => {
@@ -107,10 +108,12 @@ export default function ProportionalBreakdown({
       const rawBase = (hostSettings.customShareUrl || '').trim().replace(/\/+$/, '');
       const baseUrl = rawBase || window.location.origin;
       const hashPart = res.token ? `#d=${res.token}` : '';
-      const url = `${baseUrl}/b/${res.id}${hashPart}`;
-      setShareLink(url);
+      const fullUrl = `${baseUrl}/b/${res.id}${hashPart}`;
+      const shortUrl = `${baseUrl}/b/${res.id}`;
+      setShareLink(fullUrl);
+      setShortShareLink(shortUrl);
       if (triggerCopy) {
-        await copyToClipboard(url);
+        await copyToClipboard(fullUrl);
         setCopiedLink(true);
         setTimeout(() => setCopiedLink(false), 3000);
       }
@@ -187,7 +190,7 @@ export default function ProportionalBreakdown({
               >
                 {shareLink ? (
                   <QRCodeSVG
-                    value={shareLink}
+                    value={shortShareLink || shareLink}
                     size={150}
                     level="M"
                     includeMargin={false}
@@ -449,7 +452,7 @@ export default function ProportionalBreakdown({
 
             <div className="p-4 bg-white rounded-2xl inline-block shadow-2xl mx-auto border-4 border-slate-800">
               <QRCodeSVG
-                value={shareLink || window.location.href}
+                value={shortShareLink || shareLink || window.location.href}
                 size={230}
                 level="M"
                 includeMargin={false}

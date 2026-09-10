@@ -35,7 +35,7 @@ export default function GuestClaimView({ sessionId, onBackToHost }) {
       if (data) {
         setSession(data);
       } else {
-        setError('Sesi split bill ini tidak ditemukan atau sudah kedaluwarsa (24 jam).');
+        setError('Sesi split bill ini tidak ditemukan di server atau sudah kedaluwarsa. Jika Anda menggunakan scan QR dari HP teman, minta mereka membagikan link via WhatsApp agar data dapat dimuat offline.');
       }
     } catch (e) {
       setError(e.message);
