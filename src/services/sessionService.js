@@ -1,5 +1,6 @@
 /**
  * Ephemeral Session Sync & WhatsApp Summary Generation Service
+ * Includes client-side stateless token encoding to ensure 100% reliable QR code & link sharing
  */
 
 import { nanoid } from 'nanoid';
@@ -80,14 +81,170 @@ export function formatWhatsAppMessage({
   return msg;
 }
 
+/**
+ * Compact representation of session without heavy image base64 data
+ */
+export function serializeSessionPayload(obj) {
+  if (!obj) return null;
+  return {
+    id: obj.id,
+    createdAt: obj.createdAt || Date.now(),
+    expiresAt: obj.expiresAt || (Date.now() + 86400 * 1000),
+    restaurantName: obj.restaurantName || 'Restoran',
+    receipt: {
+      restaurant_name: obj.receipt?.restaurant_name || obj.restaurantName || 'Restoran',
+      subtotal: obj.receipt?.subtotal || 0,
+      tax: obj.receipt?.tax || 0,
+      service_charge: obj.receipt?.service_charge || 0,
+      discount: obj.receipt?.discount || 0,
+      grand_total: obj.receipt?.grand_total || 0,
+      items: (obj.receipt?.items || []).map(i => ({
+        id: i.id,
+        name: i.name,
+        qty: i.qty || 1,
+        price_per_unit: i.price_per_unit || i.price || 0,
+        total_price: i.total_price || ((i.price_per_unit || i.price || 0) * (i.qty || 1))
+      }))
+    },
+    participants: (obj.participants || []).map(p => ({
+      id: p.id,
+      name: p.name,
+      is_paid: p.is_paid || 0
+    })),
+    allocations: (obj.allocations || []).map(a => ({
+      id: a.id,
+      item_id: a.item_id,
+      participant_id: a.participant_id,
+      split_ratio: a.split_ratio
+    })),
+    calculation: obj.calculation ? {
+      grandTotal: obj.calculation.grandTotal || obj.receipt?.grand_total || 0,
+      tax: obj.calculation.tax || obj.receipt?.tax || 0,
+      serviceCharge: obj.calculation.serviceCharge || obj.receipt?.service_charge || 0,
+      discount: obj.calculation.discount || obj.receipt?.discount || 0,
+      breakdowns: (obj.calculation.breakdowns || []).map(b => ({
+        participantId: b.participantId,
+        name: b.name,
+        rawSubtotal: b.rawSubtotal || 0,
+        roundedTax: b.roundedTax || 0,
+        roundedService: b.roundedService || 0,
+        roundedDiscount: b.roundedDiscount || 0,
+        roundingAdjustment: b.roundingAdjustment || 0,
+        finalTotal: b.finalTotal || b.initialRoundedTotal || 0,
+        items: (b.items || []).map(it => ({
+          name: it.name,
+          portionPrice: it.portionPrice || it.totalItemPrice || 0,
+          splitRatio: it.splitRatio || 1
+        }))
+      }))
+    } : null,
+    hostBank: obj.hostBank || 'BCA',
+    accountNumber: obj.accountNumber || '',
+    accountHolder: obj.accountHolder || 'Host',
+    paymentMethods: (obj.paymentMethods || []).map(pm => ({
+      id: pm.id,
+      type: pm.type,
+      provider: pm.provider,
+      accountNumber: pm.accountNumber || '',
+      accountHolder: pm.accountHolder || '',
+      isPrimary: pm.isPrimary
+    })),
+    claimedBy: obj.claimedBy || {}
+  };
+}
+
+export async function compressAndEncode(obj) {
+  try {
+    const json = JSON.stringify(obj);
+    if (typeof CompressionStream !== 'undefined' && typeof Blob !== 'undefined' && typeof Response !== 'undefined') {
+      const stream = new Blob([json]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+      const buffer = await new Response(stream).arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return 'c.' + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    } else {
+      const bytes = new TextEncoder().encode(json);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return 'r.' + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+  } catch (e) {
+    console.warn('compressAndEncode error:', e);
+    return '';
+  }
+}
+
+export async function decodeAndDecompress(token) {
+  try {
+    if (!token || typeof token !== 'string') return null;
+    let type = 'r';
+    let rawToken = token;
+    if (token.startsWith('c.')) {
+      type = 'c';
+      rawToken = token.slice(2);
+    } else if (token.startsWith('r.')) {
+      type = 'r';
+      rawToken = token.slice(2);
+    }
+
+    let b64 = rawToken.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+    if (type === 'c' && typeof DecompressionStream !== 'undefined' && typeof Blob !== 'undefined' && typeof Response !== 'undefined') {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      const text = await new Response(stream).text();
+      return JSON.parse(text);
+    } else {
+      const text = new TextDecoder().decode(bytes);
+      return JSON.parse(text);
+    }
+  } catch (e) {
+    console.warn('decodeAndDecompress error:', e);
+    return null;
+  }
+}
+
+export function extractTokenFromUrl(urlOrLocation) {
+  try {
+    const loc = urlOrLocation || (typeof window !== 'undefined' ? window.location : null);
+    if (!loc) return null;
+
+    const hash = loc.hash || '';
+    const hashMatch = hash.match(/[#&]d(?:ata)?=([^&]+)/);
+    if (hashMatch) return decodeURIComponent(hashMatch[1]);
+
+    if (hash.startsWith('#c.') || hash.startsWith('#r.')) {
+      return hash.slice(1);
+    }
+
+    const search = loc.search || '';
+    if (search) {
+      const params = new URLSearchParams(search);
+      const val = params.get('d') || params.get('data');
+      if (val) return val;
+    }
+  } catch (err) {
+    console.warn('Failed to extract token from URL:', err);
+  }
+  return null;
+}
+
 export async function createEphemeralSession(sessionData) {
   const sessionId = nanoid(8);
+  const now = Date.now();
   const payload = {
     id: sessionId,
-    createdAt: Date.now(),
-    expiresAt: Date.now() + 86400 * 1000, // 24 hours TTL
+    createdAt: now,
+    expiresAt: now + 86400 * 1000, // 24 hours TTL
     ...sessionData
   };
+
+  const compact = serializeSessionPayload(payload);
+  const token = await compressAndEncode(compact);
 
   try {
     const res = await fetch('/api/bill', {
@@ -97,7 +254,7 @@ export async function createEphemeralSession(sessionData) {
     });
     if (res.ok) {
       const data = await res.json();
-      return { id: data.id || sessionId, payload };
+      return { id: data.id || sessionId, payload, token };
     }
   } catch (e) {
     console.warn('Backend ephemeral sync unavailable, using local memory session:', e.message);
@@ -111,29 +268,72 @@ export async function createEphemeralSession(sessionData) {
       localStorage.setItem(`ephemeral_bill_${sessionId}`, JSON.stringify(payload));
     } catch {}
   }
-  return { id: sessionId, payload };
+  return { id: sessionId, payload, token };
 }
 
 export async function fetchEphemeralSession(sessionId) {
+  // 1. Try resolving self-contained stateless token from URL hash or query
+  const tokenFromUrl = extractTokenFromUrl();
+  if (tokenFromUrl) {
+    const decoded = await decodeAndDecompress(tokenFromUrl);
+    if (decoded) {
+      // Check 24-hour TTL expiration
+      if (decoded.expiresAt && Date.now() > decoded.expiresAt) {
+        return null;
+      }
+      // Cache decoded session in local storage and memory
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.setItem(`ephemeral_bill_${sessionId}`, JSON.stringify(decoded));
+        } catch {}
+      }
+      const memoryStore = globalThis.__FAIRSPLIT_STORE__ || (globalThis.__FAIRSPLIT_STORE__ = new Map());
+      memoryStore.set(`ephemeral_bill_${sessionId}`, JSON.stringify(decoded));
+      return decoded;
+    }
+  }
+
+  // 2. Fetch from backend server / Vercel API endpoint
   try {
     const res = await fetch(`/api/bill/${sessionId}`);
     if (res.ok) {
-      return await res.json();
+      const data = await res.json();
+      if (data && (!data.expiresAt || Date.now() <= data.expiresAt)) {
+        if (typeof localStorage !== 'undefined') {
+          try {
+            localStorage.setItem(`ephemeral_bill_${sessionId}`, JSON.stringify(data));
+          } catch {}
+        }
+        return data;
+      }
     }
   } catch (e) {
-    // Expected in test / offline
+    // Expected in offline fallback
   }
 
+  // 3. Fallback to memory store
   const memoryStore = globalThis.__FAIRSPLIT_STORE__;
   const inMem = memoryStore?.get(`ephemeral_bill_${sessionId}`);
-  if (inMem) return JSON.parse(inMem);
+  if (inMem) {
+    const parsed = typeof inMem === 'string' ? JSON.parse(inMem) : inMem;
+    if (!parsed.expiresAt || Date.now() <= parsed.expiresAt) {
+      return parsed;
+    }
+  }
 
+  // 4. Fallback to browser localStorage
   if (typeof localStorage !== 'undefined') {
     try {
       const local = localStorage.getItem(`ephemeral_bill_${sessionId}`);
-      if (local) return JSON.parse(local);
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (!parsed.expiresAt || Date.now() <= parsed.expiresAt) {
+          return parsed;
+        }
+      }
     } catch {}
   }
+
   return null;
 }
 

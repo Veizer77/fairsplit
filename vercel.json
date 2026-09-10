@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/bill/:id",
+      "destination": "/api/bill?id=:id"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/:path*"
     },

@@ -184,6 +184,24 @@ export default function SettingsModal({ isOpen, onClose, onSaveSettings }) {
               />
             </div>
 
+            {/* Custom Share Web Domain Field */}
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-300">URL Domain Web Publik (Opsional)</label>
+                <span className="text-[10px] text-slate-400">Untuk QR & WhatsApp</span>
+              </div>
+              <input
+                type="text"
+                value={settings.customShareUrl || ''}
+                onChange={(e) => setSettings({ ...settings, customShareUrl: e.target.value })}
+                className="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-slate-500 font-mono"
+                placeholder="Contoh: https://splitbill-app.vercel.app"
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                Isi jika Anda membuka aplikasi dari localhost atau Android APK agar teman di HP lain dapat membuka link tagihan.
+              </p>
+            </div>
+
             {/* List of Configured Payment Methods */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">

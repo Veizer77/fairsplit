@@ -120,7 +120,8 @@ export const db = {
         qrisImageUrl: '',
         geminiApiKey: '',
         paymentMethods: DEFAULT_PAYMENT_METHODS,
-        defaultRounding: 'NEAREST'
+        defaultRounding: 'NEAREST',
+        customShareUrl: ''
       };
     } catch {
       return {
@@ -128,7 +129,8 @@ export const db = {
         bankName: 'BCA',
         accountNumber: '1234567890',
         accountHolder: 'Nama Host',
-        paymentMethods: DEFAULT_PAYMENT_METHODS
+        paymentMethods: DEFAULT_PAYMENT_METHODS,
+        customShareUrl: ''
       };
     }
   },

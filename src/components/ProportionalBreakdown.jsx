@@ -104,7 +104,10 @@ export default function ProportionalBreakdown({
       };
 
       const res = await createEphemeralSession(sessionData);
-      const url = `${window.location.origin}/b/${res.id}`;
+      const rawBase = (hostSettings.customShareUrl || '').trim().replace(/\/+$/, '');
+      const baseUrl = rawBase || window.location.origin;
+      const hashPart = res.token ? `#d=${res.token}` : '';
+      const url = `${baseUrl}/b/${res.id}${hashPart}`;
       setShareLink(url);
       if (triggerCopy) {
         await copyToClipboard(url);
@@ -186,7 +189,7 @@ export default function ProportionalBreakdown({
                   <QRCodeSVG
                     value={shareLink}
                     size={150}
-                    level="H"
+                    level="M"
                     includeMargin={false}
                   />
                 ) : (
@@ -195,6 +198,11 @@ export default function ProportionalBreakdown({
                   </div>
                 )}
               </div>
+              {typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && !hostSettings.customShareUrl && (
+                <div className="mt-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300 text-left">
+                  ⚠️ <strong>Tips Localhost:</strong> Kamera HP teman tidak bisa membuka link <code>localhost</code>. Agar teman bisa scan dari HP lain, gunakan IP LAN (misal: <code>http://192.168.x.x:5173</code>) atau atur URL Vercel di Pengaturan.
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => setShowQrModal(true)}
@@ -443,7 +451,7 @@ export default function ProportionalBreakdown({
               <QRCodeSVG
                 value={shareLink || window.location.href}
                 size={230}
-                level="H"
+                level="M"
                 includeMargin={false}
               />
             </div>

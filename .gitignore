@@ -38,3 +38,5 @@ pnpm-debug.log*
 *.sln
 *.sw?
 .vscode/
+
+.vercel
