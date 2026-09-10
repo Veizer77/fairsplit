@@ -12,16 +12,58 @@ import LatencyDashboard from './components/LatencyDashboard';
 import { calculateFairSplit } from './services/proportionalEngine';
 import { db } from './services/dbService';
 
+const STORAGE_KEY_ACTIVE_STATE = 'fairsplit_active_state_v1';
+
+const getSavedSessionState = () => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_ACTIVE_STATE);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
 export default function App() {
-  const [step, setStep] = useState('SCAN'); // 'SCAN' | 'REVIEW' | 'SPLIT' | 'SETTLE' | 'GUEST_VIEW'
-  const [receipt, setReceipt] = useState(null);
-  const [participants, setParticipants] = useState([
-    { id: 'p_1', name: 'Saya (Host)', is_paid: 1 }
-  ]);
-  const [allocations, setAllocations] = useState([]);
-  const [telemetry, setTelemetry] = useState(null);
-  const [rawOcrText, setRawOcrText] = useState('');
-  const [guestSessionId, setGuestSessionId] = useState(null);
+  const isGuestUrl = typeof window !== 'undefined' && /^\/b\/([a-zA-Z0-9_-]+)/.test(window.location.pathname);
+  const savedState = !isGuestUrl ? getSavedSessionState() : null;
+
+  const [step, setStep] = useState(() => {
+    if (isGuestUrl) return 'GUEST_VIEW';
+    if (savedState?.receipt && savedState?.step) {
+      return savedState.step;
+    }
+    return 'SCAN';
+  });
+
+  const [receipt, setReceipt] = useState(() => {
+    return savedState?.receipt || null;
+  });
+
+  const [participants, setParticipants] = useState(() => {
+    return savedState?.participants || [
+      { id: 'p_1', name: 'Saya (Host)', is_paid: 1 }
+    ];
+  });
+
+  const [allocations, setAllocations] = useState(() => {
+    return savedState?.allocations || [];
+  });
+
+  const [telemetry, setTelemetry] = useState(() => {
+    return savedState?.telemetry || null;
+  });
+
+  const [rawOcrText, setRawOcrText] = useState(() => {
+    return savedState?.rawOcrText || '';
+  });
+
+  const [guestSessionId, setGuestSessionId] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/^\/b\/([a-zA-Z0-9_-]+)/);
+      if (match) return match[1];
+    }
+    return null;
+  });
 
   // Modals
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -41,6 +83,30 @@ export default function App() {
     }
   }, []);
 
+  // Persist active workflow across browser reloads
+  useEffect(() => {
+    if (step === 'GUEST_VIEW') return;
+    if (!receipt) {
+      try {
+        localStorage.removeItem(STORAGE_KEY_ACTIVE_STATE);
+      } catch {}
+      return;
+    }
+    try {
+      const stateToSave = {
+        step,
+        receipt,
+        participants,
+        allocations,
+        telemetry,
+        rawOcrText
+      };
+      localStorage.setItem(STORAGE_KEY_ACTIVE_STATE, JSON.stringify(stateToSave));
+    } catch (e) {
+      console.warn('Failed to save active session state to localStorage:', e);
+    }
+  }, [step, receipt, participants, allocations, telemetry, rawOcrText]);
+
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 4000);
@@ -56,9 +122,19 @@ export default function App() {
   };
 
   const handleReset = () => {
+    if (receipt && step !== 'SCAN') {
+      const confirmReset = window.confirm('Mulai struk baru? Rincian saat ini akan direset.');
+      if (!confirmReset) return;
+    }
     setReceipt(null);
     setAllocations([]);
+    setParticipants([{ id: 'p_1', name: 'Saya (Host)', is_paid: 1 }]);
+    setTelemetry(null);
+    setRawOcrText('');
     setStep('SCAN');
+    try {
+      localStorage.removeItem(STORAGE_KEY_ACTIVE_STATE);
+    } catch {}
   };
 
   return (
@@ -145,6 +221,7 @@ export default function App() {
             receipt={receipt}
             participants={participants}
             allocations={allocations}
+            onUpdateParticipants={setParticipants}
             onBack={() => setStep('SPLIT')}
             hostSettings={hostSettings}
           />

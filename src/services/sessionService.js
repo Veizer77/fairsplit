@@ -233,8 +233,8 @@ export function extractTokenFromUrl(urlOrLocation) {
   return null;
 }
 
-export async function createEphemeralSession(sessionData) {
-  const sessionId = nanoid(8);
+export async function createEphemeralSession(sessionData, apiBase = '') {
+  const sessionId = sessionData.id || nanoid(8);
   const now = Date.now();
   const payload = {
     id: sessionId,
@@ -246,8 +246,11 @@ export async function createEphemeralSession(sessionData) {
   const compact = serializeSessionPayload(payload);
   const token = await compressAndEncode(compact);
 
+  const base = (apiBase || '').trim().replace(/\/+$/, '');
+  const targetUrl = base ? `${base}/api/bill` : '/api/bill';
+
   try {
-    const res = await fetch('/api/bill', {
+    const res = await fetch(targetUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -271,7 +274,37 @@ export async function createEphemeralSession(sessionData) {
   return { id: sessionId, payload, token };
 }
 
-export async function fetchEphemeralSession(sessionId) {
+export async function fetchEphemeralSession(sessionId, apiBase = '', preferRemote = false) {
+  const base = (apiBase || '').trim().replace(/\/+$/, '');
+  const remoteUrl = base ? `${base}/api/bill/${sessionId}` : `/api/bill/${sessionId}`;
+
+  // Helper to query remote server
+  const tryRemote = async () => {
+    try {
+      const res = await fetch(remoteUrl);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && (!data.expiresAt || Date.now() <= data.expiresAt)) {
+          if (typeof localStorage !== 'undefined') {
+            try {
+              localStorage.setItem(`ephemeral_bill_${sessionId}`, JSON.stringify(data));
+            } catch {}
+          }
+          const memoryStore = globalThis.__FAIRSPLIT_STORE__ || (globalThis.__FAIRSPLIT_STORE__ = new Map());
+          memoryStore.set(`ephemeral_bill_${sessionId}`, JSON.stringify(data));
+          return data;
+        }
+      }
+    } catch {}
+    return null;
+  };
+
+  // If preferRemote is true (polling or host check), try remote first
+  if (preferRemote) {
+    const remoteData = await tryRemote();
+    if (remoteData) return remoteData;
+  }
+
   // 1. Try resolving self-contained stateless token from URL hash or query
   const tokenFromUrl = extractTokenFromUrl();
   if (tokenFromUrl) {
@@ -293,22 +326,10 @@ export async function fetchEphemeralSession(sessionId) {
     }
   }
 
-  // 2. Fetch from backend server / Vercel API endpoint
-  try {
-    const res = await fetch(`/api/bill/${sessionId}`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && (!data.expiresAt || Date.now() <= data.expiresAt)) {
-        if (typeof localStorage !== 'undefined') {
-          try {
-            localStorage.setItem(`ephemeral_bill_${sessionId}`, JSON.stringify(data));
-          } catch {}
-        }
-        return data;
-      }
-    }
-  } catch (e) {
-    // Expected in offline fallback
+  // 2. Fetch from backend server / Vercel API endpoint (if not already tried)
+  if (!preferRemote) {
+    const remoteData = await tryRemote();
+    if (remoteData) return remoteData;
   }
 
   // 3. Fallback to memory store
@@ -335,6 +356,75 @@ export async function fetchEphemeralSession(sessionId) {
   }
 
   return null;
+}
+
+export async function markParticipantPaid(sessionId, { participantId, isPaid = true, guestName = '' }, apiBase = '') {
+  const payload = { participantId, isPaid, guestName };
+
+  // 1. BroadcastChannel for instant 0ms local cross-tab sync
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const bc = new BroadcastChannel('fairsplit_session_sync');
+      bc.postMessage({ type: 'PAID_UPDATE', sessionId, ...payload });
+      bc.close();
+    }
+  } catch {}
+
+  // 2. Local memory / local storage update
+  try {
+    const memoryStore = globalThis.__FAIRSPLIT_STORE__;
+    let data = null;
+    const inMem = memoryStore?.get(`ephemeral_bill_${sessionId}`);
+    if (inMem) {
+      data = typeof inMem === 'string' ? JSON.parse(inMem) : inMem;
+    } else if (typeof localStorage !== 'undefined') {
+      const local = localStorage.getItem(`ephemeral_bill_${sessionId}`);
+      if (local) data = JSON.parse(local);
+    }
+
+    if (data) {
+      if (!data.paidStatus) data.paidStatus = {};
+      data.paidStatus[participantId] = isPaid;
+      if (Array.isArray(data.participants)) {
+        const p = data.participants.find(pt => pt.id === participantId);
+        if (p) p.is_paid = isPaid ? 1 : 0;
+      }
+      if (memoryStore) memoryStore.set(`ephemeral_bill_${sessionId}`, JSON.stringify(data));
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(`ephemeral_bill_${sessionId}`, JSON.stringify(data));
+      }
+    }
+  } catch {}
+
+  // 3. Send PATCH to server
+  const base = (apiBase || '').trim().replace(/\/+$/, '');
+  const targetUrl = base ? `${base}/api/bill/${sessionId}/pay` : `/api/bill/${sessionId}/pay`;
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {
+    // Try query param fallback
+    try {
+      const fallbackUrl = base ? `${base}/api/bill?id=${sessionId}` : `/api/bill?id=${sessionId}`;
+      const res = await fetch(fallbackUrl, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) return await res.json();
+    } catch (e2) {
+      console.warn('markParticipantPaid server update failed:', e2.message);
+    }
+  }
+
+  return { success: true, localOnly: true };
 }
 
 export async function claimGuestItems(sessionId, { guestName, itemIds }) {

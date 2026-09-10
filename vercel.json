@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/api/bill/:id/pay",
+      "destination": "/api/bill?id=:id"
+    },
+    {
+      "source": "/api/bill/:id/:action*",
+      "destination": "/api/bill?id=:id"
+    },
+    {
       "source": "/api/bill/:id",
       "destination": "/api/bill?id=:id"
     },

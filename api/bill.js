@@ -1,6 +1,37 @@
 // Vercel Serverless Function: Unified Bill API Handler (/api/bill, /api/bill/[id], /api/bill?id=...)
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+
 export const sessionStore = globalThis.__FAIRSPLIT_VERCEL_STORE__ || (globalThis.__FAIRSPLIT_VERCEL_STORE__ = new Map());
 const TTL_MS = 86400 * 1000;
+
+// Helper: load from /tmp cache if memory was flushed
+function getSessionFromStoreOrDisk(id) {
+  let session = sessionStore.get(id);
+  if (session) return session;
+
+  try {
+    const diskPath = path.join(os.tmpdir(), `fairsplit_session_${id}.json`);
+    if (fs.existsSync(diskPath)) {
+      const data = JSON.parse(fs.readFileSync(diskPath, 'utf8'));
+      if (data && (!data.expiresAt || Date.now() <= data.expiresAt)) {
+        sessionStore.set(id, data);
+        return data;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+// Helper: save to memory & disk
+function saveSessionToStoreAndDisk(id, session) {
+  sessionStore.set(id, session);
+  try {
+    const diskPath = path.join(os.tmpdir(), `fairsplit_session_${id}.json`);
+    fs.writeFileSync(diskPath, JSON.stringify(session));
+  } catch {}
+}
 
 export default function handler(req, res) {
   // CORS headers
@@ -30,12 +61,16 @@ export default function handler(req, res) {
     if (!id) {
       return res.status(400).json({ error: 'ID sesi wajib disertakan.' });
     }
-    const session = sessionStore.get(id);
+    const session = getSessionFromStoreOrDisk(id);
     if (!session) {
       return res.status(404).json({ error: 'Sesi split bill tidak ditemukan atau telah kedaluwarsa (24 jam).' });
     }
     if (Date.now() > session.expiresAt) {
       sessionStore.delete(id);
+      try {
+        const diskPath = path.join(os.tmpdir(), `fairsplit_session_${id}.json`);
+        if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath);
+      } catch {}
       return res.status(410).json({ error: 'Sesi telah kedaluwarsa (24 jam).' });
     }
     return res.json(session);
@@ -44,6 +79,13 @@ export default function handler(req, res) {
   if (req.method === 'POST') {
     const sessionId = req.body.id || Math.random().toString(36).substring(2, 10);
     const now = Date.now();
+    const initialPaidStatus = req.body.paidStatus || {};
+    (req.body.participants || []).forEach(p => {
+      if (p.is_paid && initialPaidStatus[p.id] === undefined) {
+        initialPaidStatus[p.id] = true;
+      }
+    });
+
     const session = {
       id: sessionId,
       createdAt: now,
@@ -59,10 +101,11 @@ export default function handler(req, res) {
       qrisImageUrl: req.body.qrisImageUrl || '',
       paymentMethods: req.body.paymentMethods || [],
       claimedBy: req.body.claimedBy || {},
+      paidStatus: initialPaidStatus,
       ...req.body
     };
 
-    sessionStore.set(sessionId, session);
+    saveSessionToStoreAndDisk(sessionId, session);
     return res.status(201).json({ success: true, id: sessionId, session });
   }
 
@@ -70,17 +113,28 @@ export default function handler(req, res) {
     if (!id) {
       return res.status(400).json({ error: 'ID sesi wajib disertakan.' });
     }
-    const session = sessionStore.get(id);
+    const session = getSessionFromStoreOrDisk(id);
     if (!session) {
       return res.status(404).json({ error: 'Sesi tidak ditemukan.' });
     }
 
-    const { guestName, itemIds } = req.body || {};
-    if (guestName) {
+    const { guestName, itemIds, participantId, isPaid } = req.body || {};
+
+    if (participantId !== undefined) {
+      if (!session.paidStatus) session.paidStatus = {};
+      session.paidStatus[participantId] = isPaid !== undefined ? isPaid : true;
+      if (Array.isArray(session.participants)) {
+        const p = session.participants.find(pt => pt.id === participantId);
+        if (p) p.is_paid = isPaid ? 1 : 0;
+      }
+    }
+
+    if (guestName && itemIds) {
       if (!session.claimedBy) session.claimedBy = {};
       session.claimedBy[guestName] = itemIds || [];
     }
 
+    saveSessionToStoreAndDisk(id, session);
     return res.json({ success: true, session });
   }
 

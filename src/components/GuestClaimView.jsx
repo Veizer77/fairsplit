@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Check, CheckCircle2, Copy, DollarSign, Receipt, Share2, Sparkles, User, Users, ArrowLeft, CreditCard, ShieldCheck, QrCode, ExternalLink, Image } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { fetchEphemeralSession } from '../services/sessionService';
+import { fetchEphemeralSession, markParticipantPaid } from '../services/sessionService';
 import { calculateFairSplit } from '../services/proportionalEngine';
 import { copyToClipboard } from '../utils/clipboard';
 
@@ -18,15 +18,83 @@ const AVATAR_COLORS = [
 export default function GuestClaimView({ sessionId, onBackToHost }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedParticipantId, setSelectedParticipantId] = useState(null);
+  const [selectedParticipantId, setSelectedParticipantId] = useState(() => {
+    try {
+      return localStorage.getItem(`fairsplit_guest_participant_${sessionId}`) || null;
+    } catch {
+      return null;
+    }
+  });
   const [copiedRekening, setCopiedRekening] = useState('');
   const [selectedPaymentIndex, setSelectedPaymentIndex] = useState(0);
-  const [isConfirmedPaid, setIsConfirmedPaid] = useState(false);
+  const [isConfirmedPaid, setIsConfirmedPaid] = useState(() => {
+    try {
+      return localStorage.getItem(`fairsplit_guest_paid_${sessionId}`) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [error, setError] = useState('');
 
   useEffect(() => {
     loadSession();
   }, [sessionId]);
+
+  // Persist selected participant on reload
+  useEffect(() => {
+    if (!sessionId) return;
+    try {
+      if (selectedParticipantId) {
+        localStorage.setItem(`fairsplit_guest_participant_${sessionId}`, selectedParticipantId);
+      } else {
+        localStorage.removeItem(`fairsplit_guest_participant_${sessionId}`);
+      }
+    } catch {}
+  }, [sessionId, selectedParticipantId]);
+
+  // Persist paid status on reload
+  useEffect(() => {
+    if (!sessionId) return;
+    try {
+      if (isConfirmedPaid) {
+        localStorage.setItem(`fairsplit_guest_paid_${sessionId}`, 'true');
+      }
+    } catch {}
+  }, [sessionId, isConfirmedPaid]);
+
+  // Realtime Polling & BroadcastChannel sync
+  useEffect(() => {
+    if (!sessionId) return;
+
+    let bc = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel('fairsplit_session_sync');
+        bc.onmessage = (event) => {
+          if (event.data?.sessionId === sessionId && event.data?.participantId === selectedParticipantId) {
+            setIsConfirmedPaid(!!event.data.isPaid);
+          }
+        };
+      }
+    } catch {}
+
+    const interval = setInterval(async () => {
+      try {
+        const data = await fetchEphemeralSession(sessionId, '', true);
+        if (data) {
+          setSession(prev => ({ ...prev, ...data }));
+          if (selectedParticipantId && data.paidStatus?.[selectedParticipantId] !== undefined) {
+            setIsConfirmedPaid(!!data.paidStatus[selectedParticipantId]);
+          }
+        }
+      } catch {}
+    }, 3000);
+
+    return () => {
+      clearInterval(interval);
+      if (bc) bc.close();
+    };
+  }, [sessionId, selectedParticipantId]);
 
   const loadSession = async () => {
     setLoading(true);
@@ -34,6 +102,9 @@ export default function GuestClaimView({ sessionId, onBackToHost }) {
       const data = await fetchEphemeralSession(sessionId);
       if (data) {
         setSession(data);
+        if (selectedParticipantId && data.paidStatus?.[selectedParticipantId] !== undefined) {
+          setIsConfirmedPaid(!!data.paidStatus[selectedParticipantId]);
+        }
       } else {
         setError('Sesi split bill ini tidak ditemukan di server atau sudah kedaluwarsa. Jika Anda menggunakan scan QR dari HP teman, minta mereka membagikan link via WhatsApp agar data dapat dimuat offline.');
       }
@@ -52,13 +123,25 @@ export default function GuestClaimView({ sessionId, onBackToHost }) {
     }
   };
 
-  const handleConfirmPaid = () => {
+  const handleConfirmPaid = async () => {
     setIsConfirmedPaid(true);
     confetti({
       particleCount: 70,
       spread: 70,
       origin: { y: 0.7 }
     });
+
+    if (sessionId && selectedParticipantId) {
+      try {
+        await markParticipantPaid(sessionId, {
+          participantId: selectedParticipantId,
+          isPaid: true,
+          guestName: selectedParticipant?.name
+        });
+      } catch (e) {
+        console.warn('Failed to notify host of payment:', e);
+      }
+    }
   };
 
   if (loading) {

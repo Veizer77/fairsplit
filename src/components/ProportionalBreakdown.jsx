@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Share2, Copy, Check, QrCode, MessageCircle, ArrowLeft, ShieldCheck, Sparkles, DollarSign, CheckCircle2, ExternalLink, Send, Maximize2, X, Users } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import confetti from 'canvas-confetti';
-import { formatWhatsAppMessage, createEphemeralSession } from '../services/sessionService';
+import { formatWhatsAppMessage, createEphemeralSession, fetchEphemeralSession, markParticipantPaid } from '../services/sessionService';
 import { copyToClipboard } from '../utils/clipboard';
 
 export default function ProportionalBreakdown({
@@ -11,12 +11,14 @@ export default function ProportionalBreakdown({
   participants,
   allocations,
   onBack,
+  onUpdateParticipants,
   hostSettings = {}
 }) {
   const [copiedWA, setCopiedWA] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [shareLink, setShareLink] = useState('');
   const [shortShareLink, setShortShareLink] = useState('');
+  const [sessionId, setSessionId] = useState(() => receipt?.sessionId || '');
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [paidStatus, setPaidStatus] = useState(() => {
@@ -43,9 +45,81 @@ export default function ProportionalBreakdown({
     handleGenerateShareLink(false);
   }, []);
 
-  const togglePaid = (participantId) => {
+  // Realtime Polling & BroadcastChannel sync for participant payment status
+  useEffect(() => {
+    const activeId = sessionId || receipt?.sessionId;
+    if (!activeId) return;
+
+    // 1. BroadcastChannel (0ms sync for same device / local tests)
+    let bc = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel('fairsplit_session_sync');
+        bc.onmessage = (event) => {
+          if (event.data?.sessionId === activeId && event.data?.participantId) {
+            const { participantId, isPaid } = event.data;
+            setPaidStatus(prev => {
+              if (prev[participantId] === isPaid) return prev;
+              const next = { ...prev, [participantId]: isPaid };
+              if (isPaid) {
+                confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
+              }
+              return next;
+            });
+            if (onUpdateParticipants) {
+              onUpdateParticipants(cur => cur.map(p => p.id === participantId ? { ...p, is_paid: isPaid ? 1 : 0 } : p));
+            }
+          }
+        };
+      }
+    } catch {}
+
+    // 2. Poll server every 2 seconds for remote updates
+    const rawBase = (hostSettings.customShareUrl || '').trim().replace(/\/+$/, '');
+    const baseUrl = rawBase || window.location.origin;
+
+    const poll = async () => {
+      try {
+        const data = await fetchEphemeralSession(activeId, baseUrl, true);
+        if (data?.paidStatus) {
+          setPaidStatus(prev => {
+            let changed = false;
+            const next = { ...prev };
+            Object.entries(data.paidStatus).forEach(([pId, isPaid]) => {
+              if (next[pId] !== !!isPaid) {
+                next[pId] = !!isPaid;
+                changed = true;
+              }
+            });
+            if (changed) {
+              confetti({ particleCount: 70, spread: 80, origin: { y: 0.6 } });
+              if (onUpdateParticipants) {
+                onUpdateParticipants(cur => cur.map(p => ({
+                  ...p,
+                  is_paid: next[p.id] ? 1 : 0
+                })));
+              }
+            }
+            return changed ? next : prev;
+          });
+        }
+      } catch {}
+    };
+
+    const interval = setInterval(poll, 2000);
+    return () => {
+      clearInterval(interval);
+      if (bc) bc.close();
+    };
+  }, [sessionId, receipt?.sessionId, hostSettings.customShareUrl, onUpdateParticipants]);
+
+  const togglePaid = async (participantId) => {
     const nextVal = !paidStatus[participantId];
     setPaidStatus(prev => ({ ...prev, [participantId]: nextVal }));
+
+    if (onUpdateParticipants) {
+      onUpdateParticipants(cur => cur.map(p => p.id === participantId ? { ...p, is_paid: nextVal ? 1 : 0 } : p));
+    }
 
     if (nextVal) {
       confetti({
@@ -53,6 +127,15 @@ export default function ProportionalBreakdown({
         spread: 60,
         origin: { y: 0.8 }
       });
+    }
+
+    const activeId = sessionId || receipt?.sessionId;
+    if (activeId) {
+      const rawBase = (hostSettings.customShareUrl || '').trim().replace(/\/+$/, '');
+      const baseUrl = rawBase || window.location.origin;
+      try {
+        await markParticipantPaid(activeId, { participantId, isPaid: nextVal }, baseUrl);
+      } catch {}
     }
   };
 
@@ -88,11 +171,14 @@ export default function ProportionalBreakdown({
   const handleGenerateShareLink = async (triggerCopy = true) => {
     setIsGeneratingLink(true);
     try {
+      const stableId = receipt?.sessionId || sessionId || undefined;
       const sessionData = {
+        id: stableId,
         restaurantName,
         receipt,
         participants,
         allocations,
+        paidStatus,
         calculation: {
           ...calculation,
           breakdowns
@@ -104,12 +190,19 @@ export default function ProportionalBreakdown({
         paymentMethods: hostSettings.paymentMethods || []
       };
 
-      const res = await createEphemeralSession(sessionData);
       const rawBase = (hostSettings.customShareUrl || '').trim().replace(/\/+$/, '');
       const baseUrl = rawBase || window.location.origin;
+      const res = await createEphemeralSession(sessionData, baseUrl);
+
+      const realId = res.id || stableId;
+      setSessionId(realId);
+      if (receipt && !receipt.sessionId) {
+        receipt.sessionId = realId;
+      }
+
       const hashPart = res.token ? `#d=${res.token}` : '';
-      const fullUrl = `${baseUrl}/b/${res.id}${hashPart}`;
-      const shortUrl = `${baseUrl}/b/${res.id}`;
+      const fullUrl = `${baseUrl}/b/${realId}${hashPart}`;
+      const shortUrl = `${baseUrl}/b/${realId}`;
       setShareLink(fullUrl);
       setShortShareLink(shortUrl);
       if (triggerCopy) {

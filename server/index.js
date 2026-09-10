@@ -149,6 +149,37 @@ app.patch('/api/bill/:id/claim', (req, res) => {
   res.json({ success: true, session });
 });
 
+// PATCH /api/bill/:id/pay & /api/bill/:id - Update participant paid status
+const handlePayUpdate = (req, res) => {
+  const { id } = req.params;
+  const { participantId, isPaid = true, guestName, itemIds } = req.body;
+
+  const session = sessionStore.get(id);
+  if (!session) {
+    return res.status(404).json({ error: 'Sesi tidak ditemukan.' });
+  }
+
+  if (participantId !== undefined) {
+    if (!session.paidStatus) session.paidStatus = {};
+    session.paidStatus[participantId] = isPaid !== undefined ? isPaid : true;
+    if (Array.isArray(session.participants)) {
+      const p = session.participants.find(pt => pt.id === participantId);
+      if (p) p.is_paid = isPaid ? 1 : 0;
+    }
+  }
+
+  if (guestName && itemIds) {
+    if (!session.claimedBy) session.claimedBy = {};
+    session.claimedBy[guestName] = itemIds;
+  }
+
+  console.log(`[PAID STATUS UPDATED] Bill ${id}, participant ${participantId} isPaid=${isPaid}`);
+  res.json({ success: true, session });
+};
+
+app.patch('/api/bill/:id/pay', handlePayUpdate);
+app.patch('/api/bill/:id', handlePayUpdate);
+
 // POST /api/parse-receipt - Server-side Groq parser proxy
 app.post('/api/parse-receipt', async (req, res) => {
   const { rawText } = req.body;
