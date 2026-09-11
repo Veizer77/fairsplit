@@ -1,26 +1,24 @@
 import React, { useState, useRef } from 'react';
-import { Camera, Upload, AlertTriangle, FileText, ArrowRight, Zap, CheckCircle2, RefreshCw, Cpu, BrainCircuit } from 'lucide-react';
-import { runReceiptOcr } from '../services/ocrService';
+import { Camera, Upload, AlertTriangle, FileText, ArrowRight, Zap, CheckCircle2, RefreshCw, Cpu, BrainCircuit, X, Settings } from 'lucide-react';
 import { parseReceiptWithGemini } from '../services/geminiVisionService';
-import { parseReceiptWithRegex } from '../services/regexParserService';
 
-export default function ReceiptScanner({ onParsed, onManualEntry, onError, geminiApiKey, apiBase = '' }) {
+export default function ReceiptScanner({ onParsed, onManualEntry, onError, geminiApiKey, apiBase = '', onOpenSettings }) {
   const [isProcessing, setIsProcessing] = useState(false);
-  const [ocrProgress, setOcrProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState('');
+  const [scanError, setScanError] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Direct Image Processing via Gemini Multimodal Vision AI
+  // Direct Image Processing via Gemini Multimodal Vision AI ONLY (No offline fallback)
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setScanError(null);
     setIsProcessing(true);
     setStatusMessage('Menganalisis struk dengan Gemini Multimodal Vision AI...');
     const pipeStart = performance.now();
 
     try {
-      // 1. Primary Engine: Google Gemini Multimodal Vision AI
       const visionResult = await parseReceiptWithGemini(file, geminiApiKey, apiBase);
       const totalPipelineMs = Math.round(performance.now() - pipeStart);
 
@@ -36,37 +34,74 @@ export default function ReceiptScanner({ onParsed, onManualEntry, onError, gemin
         }
       });
     } catch (visionErr) {
-      console.warn('Gemini Vision failed, attempting local OCR fallback:', visionErr.message);
-      setStatusMessage('Vision AI offline, menjalankan fallback OCR lokal...');
-
-      try {
-        const ocrResult = await runReceiptOcr(file, (p) => setOcrProgress(p));
-        const regexResult = parseReceiptWithRegex(ocrResult.rawText);
-        const totalPipelineMs = Math.round(performance.now() - pipeStart);
-
-        onParsed({
-          receipt: regexResult.data,
-          rawText: ocrResult.rawText,
-          telemetry: {
-            ocrLatencyMs: ocrResult.latencyMs,
-            llmLatencyMs: 0,
-            totalMs: totalPipelineMs,
-            source: 'OFFLINE_FALLBACK',
-            model: 'heuristic-engine'
-          }
-        });
-      } catch (fallbackErr) {
-        onError(`Gagal memproses struk: ${visionErr.message}`);
+      console.warn('Gemini Vision failed:', visionErr.message);
+      const errorMsg = visionErr?.message || 'Gemini Vision AI tidak dapat digunakan saat ini.';
+      setScanError(errorMsg);
+      if (onError) {
+        onError(errorMsg);
       }
     } finally {
       setIsProcessing(false);
       setStatusMessage('');
-      setOcrProgress(0);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-6">
+      {/* Notification Banner when Gemini cannot be used */}
+      {scanError && (
+        <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/40 text-left space-y-3 shadow-lg animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-start justify-between gap-2.5">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-rose-300">Gemini Vision AI Tidak Dapat Digunakan</h4>
+                <p className="text-xs text-slate-300 leading-relaxed">{scanError}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setScanError(null)}
+              className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800/60 transition"
+              title="Tutup notifikasi"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-rose-500/20 text-xs">
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition flex items-center gap-1.5"
+              >
+                <Settings className="w-3.5 h-3.5 text-brand-400" />
+                <span>Periksa API Key di Pengaturan</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onManualEntry}
+              className="px-3.5 py-1.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-slate-950 font-bold text-xs transition flex items-center gap-1.5 shadow-glow"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Input Manual Saja</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-1.5 rounded-xl text-slate-400 hover:text-white text-xs transition"
+            >
+              Coba Pilih Foto Lain
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Scanner Card */}
       <div className="glass-panel rounded-2xl p-6 sm:p-8 border border-slate-800 relative overflow-hidden shadow-glass">
         <div className="absolute -top-24 -right-24 w-48 h-48 bg-brand-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -106,18 +141,11 @@ export default function ReceiptScanner({ onParsed, onManualEntry, onError, gemin
           }`}
         >
           {isProcessing ? (
-            <div className="space-y-4 py-2">
+            <div className="space-y-4 py-4">
               <RefreshCw className="w-8 h-8 text-brand-400 animate-spin mx-auto" />
               <div>
                 <p className="text-sm font-semibold text-white">{statusMessage}</p>
-                {ocrProgress > 0 && (
-                  <div className="w-48 mx-auto mt-3 bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
-                    <div
-                      className="bg-brand-500 h-full transition-all duration-300"
-                      style={{ width: `${ocrProgress}%` }}
-                    />
-                  </div>
-                )}
+                <p className="text-xs text-slate-400 mt-1">Mengirim gambar ke Gemini Multimodal Vision...</p>
               </div>
             </div>
           ) : (
@@ -130,7 +158,7 @@ export default function ReceiptScanner({ onParsed, onManualEntry, onError, gemin
                   Ambil Foto atau Unggah Foto Struk
                 </p>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Format JPG, PNG, WEBP • Diproses Otomatis oleh Vision AI
+                  Format JPG, PNG, WEBP • Diproses Otomatis oleh Gemini Vision AI
                 </p>
               </div>
               <button
@@ -146,7 +174,7 @@ export default function ReceiptScanner({ onParsed, onManualEntry, onError, gemin
 
         {/* Manual Entry Fallback Button */}
         <div className="mt-4 flex items-center justify-between pt-4 border-t border-slate-800/80 text-xs">
-          <span className="text-slate-400">Tidak punya foto struk saat ini?</span>
+          <span className="text-slate-400">Tidak punya foto struk atau API tidak tersedia?</span>
           <button
             type="button"
             onClick={onManualEntry}

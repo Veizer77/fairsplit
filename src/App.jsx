@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import Header from './components/Header';
 import ReceiptScanner from './components/ReceiptScanner';
 import ReceiptReview from './components/ReceiptReview';
@@ -141,8 +142,19 @@ export default function App() {
     <div className="min-h-screen bg-[#0B0F17] text-slate-100 flex flex-col selection:bg-brand-500 selection:text-white">
       {/* Toast Alert */}
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 p-4 rounded-xl bg-slate-900 border border-brand-500/50 shadow-glow text-xs text-white max-w-sm">
-          {toastMessage}
+        <div className="fixed bottom-5 right-5 z-50 p-4 rounded-2xl bg-slate-900/95 border border-rose-500/50 shadow-2xl text-xs text-white max-w-sm flex items-start gap-3 backdrop-blur-md">
+          <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-semibold text-rose-300">Pemberitahuan</p>
+            <p className="text-slate-300 text-[11px] mt-0.5 leading-relaxed">{toastMessage}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToastMessage(null)}
+            className="text-slate-400 hover:text-white p-1"
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -178,6 +190,7 @@ export default function App() {
             onError={(err) => showToast(err)}
             geminiApiKey={hostSettings.geminiApiKey}
             apiBase={hostSettings.customShareUrl}
+            onOpenSettings={() => setIsSettingsModalOpen(true)}
           />
         )}
 
