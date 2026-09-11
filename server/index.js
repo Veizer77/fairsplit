@@ -232,18 +232,24 @@ app.post('/api/parse-receipt', async (req, res) => {
 
 // POST /api/parse-gemini - Server-side Gemini Multimodal Vision proxy
 app.post('/api/parse-gemini', async (req, res) => {
-  const { imageBase64, mimeType = 'image/jpeg' } = req.body;
+  const { imageBase64, mimeType = 'image/jpeg', apiKey: bodyKey } = req.body;
   if (!imageBase64) {
     return res.status(400).json({ error: 'Gambar struk tidak boleh kosong.' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY || '';
+  const authHeader = req.headers.authorization || '';
+  const bearerKey = authHeader.startsWith('Bearer ') ? authHeader.substring(7).trim() : '';
+  const apiKey = bodyKey || bearerKey || process.env.GEMINI_API_KEY || '';
+
+  if (!apiKey) {
+    return res.status(503).json({ error: 'GEMINI_API_KEY belum dikonfigurasi di server. Masukkan API Key di menu Pengaturan aplikasi.' });
+  }
+
   const models = [
-    'gemini-3.1-flash-lite',
-    'gemini-2.5-flash',
-    'gemini-flash-latest',
-    'gemini-3.1-flash-lite-preview',
-    'gemini-2.5-flash-lite'
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-1.5-flash-8b',
+    'gemini-1.5-pro'
   ];
 
   const prompt = `You are a professional Indonesian restaurant receipt parser (GoPay Split Bill quality).

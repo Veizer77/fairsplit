@@ -5,41 +5,54 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    return res.status(200).end();
   }
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { imageBase64, mimeType = 'image/jpeg' } = req.body || {};
+  const { imageBase64, mimeType = 'image/jpeg', apiKey: bodyApiKey } = req.body || {};
   if (!imageBase64) {
     return res.status(400).json({ error: 'Gambar struk tidak boleh kosong.' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+  // Header or Body key from client, or Server Environment Variable
+  const authHeader = req.headers.authorization || '';
+  const bearerKey = authHeader.startsWith('Bearer ') ? authHeader.substring(7).trim() : '';
+  const apiKey = bodyApiKey || bearerKey || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+
+  if (!apiKey) {
+    return res.status(503).json({
+      error: 'GEMINI_API_KEY belum dikonfigurasi. Tambahkan GEMINI_API_KEY di Vercel Dashboard -> Settings -> Environment Variables, atau masukkan API Key di menu Pengaturan aplikasi.'
+    });
+  }
+
+  // Official active Google Gemini models for Vision/Multimodal
   const models = [
-    'gemini-3.1-flash-lite',
-    'gemini-2.5-flash',
-    'gemini-flash-latest',
-    'gemini-3.1-flash-lite-preview'
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-1.5-flash-8b',
+    'gemini-1.5-pro'
   ];
 
-  const prompt = `You are a professional Indonesian restaurant receipt parser.
-Extract only real food/drink items, quantities, prices, subtotal, tax (PB1/PPN), service charge, discount, and grand total.
+  const prompt = `You are a professional Indonesian restaurant receipt parser (GoPay Split Bill quality).
+Extract only real food and beverage items, quantities, prices, subtotal, tax (PB1/PPN), service charge, discount, and grand total from this image.
+Ignore order numbers, dates, times, table numbers, cashier names, payment methods, and change/kembalian lines.
 Output strictly valid JSON with schema:
 {
-  "restaurant_name": "string",
+  "restaurant_name": "string or null",
   "subtotal": 0,
   "tax": 0,
   "service_charge": 0,
   "discount": 0,
   "grand_total": 0,
   "items": [
-    { "id": "1", "name": "Item name", "qty": 1, "price_per_unit": 0, "total_price": 0 }
+    { "name": "string", "qty": 1, "price_per_unit": 0, "total_price": 0 }
   ]
 }`;
+
+  let lastGoogleError = null;
 
   for (const model of models) {
     try {
@@ -75,11 +88,26 @@ Output strictly valid JSON with schema:
           const structured = JSON.parse(rawText);
           return res.status(200).json({ structuredData: structured, model });
         }
+      } else {
+        const errJson = await geminiRes.json().catch(() => null);
+        const errMsg = errJson?.error?.message || `HTTP ${geminiRes.status}`;
+        lastGoogleError = `${model}: ${errMsg}`;
+        console.warn(`[GEMINI PROXY] Model ${model} error:`, errMsg);
+
+        // If auth error, don't keep trying other models with same invalid key
+        if (geminiRes.status === 400 || geminiRes.status === 401 || geminiRes.status === 403) {
+          return res.status(geminiRes.status).json({
+            error: `Google Gemini API Authentication Failed (${geminiRes.status}): ${errMsg}. Pastikan API Key Anda valid (diawali AIzaSy...) dari https://aistudio.google.com.`
+          });
+        }
       }
     } catch (e) {
-      console.warn(`Gemini Vercel proxy ${model} failed:`, e.message);
+      lastGoogleError = `${model}: ${e.message}`;
+      console.warn(`[GEMINI PROXY] Fetch error for ${model}:`, e.message);
     }
   }
 
-  res.status(502).json({ error: 'Gagal memproses gambar dengan Gemini Vision API.' });
+  return res.status(502).json({
+    error: `Gagal memproses gambar dengan Gemini Vision API. Detail: ${lastGoogleError || 'Semua model gagal merespons.'}`
+  });
 }

@@ -167,13 +167,12 @@ export async function parseReceiptWithGemini(fileOrBase64, customApiKey = null, 
     throw new Error('Format gambar tidak didukung.');
   }
 
-  // Model list: prioritizes gemini-3.1-flash-lite as requested by user
+  // Official active Google Gemini models for Multimodal Vision
   const models = [
-    'gemini-3.1-flash-lite',
-    'gemini-2.5-flash',
-    'gemini-flash-latest',
-    'gemini-3.1-flash-lite-preview',
-    'gemini-2.5-flash-lite'
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-1.5-flash-8b',
+    'gemini-1.5-pro'
   ];
   let lastError = null;
 
@@ -240,10 +239,14 @@ export async function parseReceiptWithGemini(fileOrBase64, customApiKey = null, 
     const proxyUrl = base ? `${base}/api/parse-gemini` : '/api/parse-gemini';
     const proxyRes = await fetch(proxyUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
+      },
       body: JSON.stringify({
         imageBase64: base64Data,
-        mimeType
+        mimeType,
+        apiKey: apiKey || undefined
       })
     });
 
@@ -257,9 +260,14 @@ export async function parseReceiptWithGemini(fileOrBase64, customApiKey = null, 
         source: 'GEMINI_VISION_PROXY',
         model: json.model || 'gemini-2.0-flash'
       };
+    } else {
+      const errJson = await proxyRes.json().catch(() => null);
+      if (errJson?.error) {
+        lastError = new Error(errJson.error);
+      }
     }
   } catch (proxyErr) {
-    // Continue to error
+    if (!lastError) lastError = proxyErr;
   }
 
   throw lastError || new Error('Gagal memproses gambar dengan Gemini Vision.');
