@@ -392,10 +392,10 @@ export default function SettingsModal({ isOpen, onClose, onSaveSettings }) {
                 value={settings.geminiApiKey || ''}
                 onChange={(e) => setSettings({ ...settings, geminiApiKey: e.target.value })}
                 className="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-white font-mono"
-                placeholder="AIzaSy..."
+                placeholder="AQ.Ab8RN6L6swt..."
               />
               <p className="text-[11px] text-slate-400 mt-1">
-                Kunci API digunakan oleh model <strong>Gemini 2.0 Flash</strong> untuk membaca foto struk restoran secara presisi. Dapatkan gratis di <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-brand-400 underline">Google AI Studio</a>.
+                Kunci API digunakan oleh model <strong>Gemini 3.1 Flash Lite</strong> untuk membaca foto struk restoran secara presisi.
               </p>
             </div>
           </div>
