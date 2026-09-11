@@ -178,11 +178,11 @@ export default function ReceiptReview({ receipt, rawText, onUpdateReceipt, onCon
             </div>
           ) : (
             items.map((item, idx) => (
-              <div key={item.id || idx} className="p-3.5 sm:p-4 hover:bg-slate-800/30 transition flex items-center gap-3">
-                <span className="text-xs font-mono text-slate-500 w-5">{idx + 1}.</span>
+              <div key={item.id || idx} className="p-3.5 sm:p-4 hover:bg-slate-800/30 transition flex items-center gap-2 sm:gap-3 flex-wrap sm:flex-nowrap">
+                <span className="text-xs font-mono text-slate-500 w-5 hidden sm:block">{idx + 1}.</span>
 
                 {/* Item Name */}
-                <div className="flex-1 min-w-[140px]">
+                <div className="flex-1 w-full sm:w-auto min-w-[140px] order-1 sm:order-none">
                   <input
                     type="text"
                     value={item.name}
@@ -193,7 +193,7 @@ export default function ReceiptReview({ receipt, rawText, onUpdateReceipt, onCon
                 </div>
 
                 {/* Qty */}
-                <div className="w-16">
+                <div className="w-16 order-2 sm:order-none mt-2 sm:mt-0">
                   <input
                     type="number"
                     min="1"
@@ -205,7 +205,7 @@ export default function ReceiptReview({ receipt, rawText, onUpdateReceipt, onCon
                 </div>
 
                 {/* Total Price */}
-                <div className="w-28 sm:w-32">
+                <div className="flex-1 sm:w-32 order-3 sm:order-none mt-2 sm:mt-0">
                   <div className="relative">
                     <span className="absolute left-2.5 top-1.5 text-xs text-slate-500 font-mono">Rp</span>
                     <input
@@ -220,7 +220,7 @@ export default function ReceiptReview({ receipt, rawText, onUpdateReceipt, onCon
                 {/* Delete */}
                 <button
                   onClick={() => handleDeleteItem(idx)}
-                  className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition order-4 sm:order-none mt-2 sm:mt-0"
                   title="Hapus Item"
                 >
                   <Trash2 className="w-4 h-4" />
