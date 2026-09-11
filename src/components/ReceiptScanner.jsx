@@ -4,7 +4,7 @@ import { runReceiptOcr } from '../services/ocrService';
 import { parseReceiptWithGemini } from '../services/geminiVisionService';
 import { parseReceiptWithRegex } from '../services/regexParserService';
 
-export default function ReceiptScanner({ onParsed, onManualEntry, onError, geminiApiKey }) {
+export default function ReceiptScanner({ onParsed, onManualEntry, onError, geminiApiKey, apiBase = '' }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState('');
@@ -21,7 +21,7 @@ export default function ReceiptScanner({ onParsed, onManualEntry, onError, gemin
 
     try {
       // 1. Primary Engine: Google Gemini Multimodal Vision AI
-      const visionResult = await parseReceiptWithGemini(file, geminiApiKey);
+      const visionResult = await parseReceiptWithGemini(file, geminiApiKey, apiBase);
       const totalPipelineMs = Math.round(performance.now() - pipeStart);
 
       onParsed({

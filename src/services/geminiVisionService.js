@@ -136,7 +136,7 @@ export function sanitizeGeminiOutput(raw) {
 /**
  * Main Direct Gemini Vision Parser
  */
-export async function parseReceiptWithGemini(fileOrBase64, customApiKey = null) {
+export async function parseReceiptWithGemini(fileOrBase64, customApiKey = null, apiBase = '') {
   const startTime = performance.now();
 
   const apiKey = customApiKey
@@ -177,64 +177,68 @@ export async function parseReceiptWithGemini(fileOrBase64, customApiKey = null) 
   ];
   let lastError = null;
 
-  // 1. Try Direct Google Gemini API
-  for (const model of models) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  // 1. Try Direct Google Gemini API (if key available)
+  if (apiKey) {
+    for (const model of models) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: GEMINI_SYSTEM_PROMPT },
-                {
-                  inline_data: {
-                    mime_type: mimeType,
-                    data: base64Data
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: GEMINI_SYSTEM_PROMPT },
+                  {
+                    inline_data: {
+                      mime_type: mimeType,
+                      data: base64Data
+                    }
                   }
-                }
-              ]
+                ]
+              }
+            ],
+            generationConfig: {
+              response_mime_type: 'application/json',
+              temperature: 0.1
             }
-          ],
-          generationConfig: {
-            response_mime_type: 'application/json',
-            temperature: 0.1
-          }
-        })
-      });
+          })
+        });
 
-      if (res.ok) {
-        const json = await res.json();
-        const rawContent = json.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!rawContent) throw new Error('Format balasan Gemini kosong.');
+        if (res.ok) {
+          const json = await res.json();
+          const rawContent = json.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!rawContent) throw new Error('Format balasan Gemini kosong.');
 
-        const parsed = JSON.parse(rawContent);
-        const data = sanitizeGeminiOutput(parsed);
-        const latencyMs = Math.round(performance.now() - startTime);
+          const parsed = JSON.parse(rawContent);
+          const data = sanitizeGeminiOutput(parsed);
+          const latencyMs = Math.round(performance.now() - startTime);
 
-        return {
-          data,
-          latencyMs,
-          source: 'GEMINI_VISION',
-          model: model
-        };
-      } else {
-        const errText = await res.text();
-        lastError = new Error(`Gemini API ${res.status}: ${errText}`);
+          return {
+            data,
+            latencyMs,
+            source: 'GEMINI_VISION',
+            model: model
+          };
+        } else {
+          const errText = await res.text();
+          lastError = new Error(`Gemini API ${res.status}: ${errText}`);
+        }
+      } catch (err) {
+        lastError = err;
       }
-    } catch (err) {
-      lastError = err;
     }
   }
 
-  // 2. Fallback to Local Backend Proxy (/api/parse-gemini)
+  // 2. Fallback to Backend Proxy (/api/parse-gemini)
   try {
-    const proxyRes = await fetch('/api/parse-gemini', {
+    const base = (apiBase || '').trim().replace(/\/+$/, '');
+    const proxyUrl = base ? `${base}/api/parse-gemini` : '/api/parse-gemini';
+    const proxyRes = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

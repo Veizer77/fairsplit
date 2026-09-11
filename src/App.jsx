@@ -177,6 +177,7 @@ export default function App() {
             onManualEntry={() => setIsManualModalOpen(true)}
             onError={(err) => showToast(err)}
             geminiApiKey={hostSettings.geminiApiKey}
+            apiBase={hostSettings.customShareUrl}
           />
         )}
 
